@@ -1,0 +1,230 @@
+SHIFT REPORT EMAIL TEMPLATE
+==========================
+
+Use this template when emailing shift data to ensure the automated parser can read it correctly.
+
+---
+
+METHOD 1: Basic Template (Recommended)
+=======================================
+
+Subject: Shift Report - [DATE] - [SHIFT]
+Example: Shift Report - 11/19/2025 - 1st
+
+Body:
+---
+Date: 11/19/2025
+Shift: 1st
+
+STAFFING:
+Forecasted: 105
+Requested: 99
+Required: 107
+Working: 80
+
+ACTIVITY:
+New Starts: 3
+Sent Home: 0
+Direct Hours: 769.75
+
+QUALITY:
+Surveys Completed: 0
+Early Leaves: 6
+DNRs: 1
+---
+
+---
+
+METHOD 2: Detailed Template
+============================
+
+Subject: Shift Report - [DATE] - [SHIFT] - [LOCATION]
+
+Body:
+---
+CRESCENT SCORECARD - SHIFT REPORT
+==================================
+
+Date: 11/19/2025
+Shift: 1st Shift
+Location: Main Facility
+
+STAFFING METRICS
+-----------------
+Forecasted: 105
+Requested: 99
+Required: 107
+Working: 80
+Variance: -27
+
+ACTIVITY METRICS
+-----------------
+New Starts: 3
+Sent Home: 0
+Direct Hours Worked: 769.75
+
+QUALITY METRICS
+----------------
+Surveys Completed: 0
+Early Leaves: 6
+DNRs (Do Not Returns): 1
+
+NOTES:
+Lower than expected attendance due to weather conditions.
+3 new hires started and completed orientation.
+
+Submitted by: [Your Name]
+Date/Time: 11/19/2025 3:45 PM
+---
+
+---
+
+METHOD 3: Simple Format
+========================
+
+Subject: Shift Report
+
+Body:
+---
+11/19/2025 - 1st Shift
+
+Forecasted: 105
+Requested: 99
+Required: 107
+Working: 80
+New Starts: 3
+Sent Home: 0
+Direct Hours: 769.75
+Surveys: 0
+Early Leaves: 6
+DNRs: 1
+---
+
+---
+
+IMPORTANT RULES FOR AUTOMATED PARSING
+======================================
+
+1. SUBJECT LINE:
+   - Must contain "Shift Report" (case-insensitive)
+   - Can include additional text
+   - Examples:
+     ✓ "Shift Report - 11/19/2025"
+     ✓ "SHIFT REPORT 1st"
+     ✓ "Daily Shift Report"
+
+2. DATE FORMAT:
+   - Use MM/DD/YYYY format
+   - Must include "Date:" label
+   - Examples:
+     ✓ Date: 11/19/2025
+     ✓ DATE: 11/19/2025
+     ✗ 11-19-2025 (wrong separator)
+     ✗ 2025/11/19 (wrong order)
+
+3. SHIFT:
+   - Must include "Shift:" label
+   - Use "1st" or "2nd" (case-insensitive)
+   - Alternatives: "first" or "second"
+   - Examples:
+     ✓ Shift: 1st
+     ✓ Shift: 2nd
+     ✓ SHIFT: First
+     ✗ Shift 1 (no "st")
+
+4. NUMBERS:
+   - Use label followed by colon and number
+   - Integer values for counts
+   - Decimal values for hours
+   - Examples:
+     ✓ Working: 80
+     ✓ Direct Hours: 769.75
+     ✓ New Starts: 3
+     ✗ Working 80 (missing colon)
+     ✗ New Starts: three (use numbers)
+
+5. FIELD NAMES:
+   Must use these exact labels (case-insensitive):
+   - Forecasted
+   - Requested
+   - Required
+   - Working
+   - New Starts
+   - Sent Home
+   - Direct Hours
+   - Surveys Completed (or just "Surveys")
+   - Early Leaves
+   - DNRs
+
+---
+
+QUICK REFERENCE - COPY/PASTE TEMPLATE
+======================================
+
+Subject: Shift Report - MM/DD/YYYY - 1st
+
+Date: MM/DD/YYYY
+Shift: 1st
+
+Forecasted: 
+Requested: 
+Required: 
+Working: 
+New Starts: 
+Sent Home: 
+Direct Hours: 
+Surveys Completed: 
+Early Leaves: 
+DNRs: 
+
+---
+
+TESTING YOUR EMAIL FORMAT
+==========================
+
+Before using automated parsing, test your email format:
+
+1. Send a test email with real data
+2. Run: python email_parser.py test
+3. Verify all fields are parsed correctly
+4. Adjust format if needed
+
+---
+
+TROUBLESHOOTING
+===============
+
+Problem: Email not being processed
+- Check subject line contains "Shift Report"
+- Verify email is unread
+- Check spam/junk folder
+
+Problem: Date not parsed
+- Use MM/DD/YYYY format
+- Include "Date:" label
+- No extra text on the date line
+
+Problem: Shift not detected
+- Use "1st" or "2nd"
+- Include "Shift:" label
+- No extra text on the shift line
+
+Problem: Numbers wrong or zero
+- Check field name spelling
+- Ensure colon after field name
+- Use numbers, not words
+- Check for extra spaces
+
+---
+
+CONTACT
+=======
+
+Questions about the email format?
+- Check SETUP_GUIDE.md
+- Test with: python email_parser.py test
+- Review email_parser.py for parsing logic
+
+---
+
+Last Updated: November 2025

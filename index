@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crescent Scorecard 2025</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/date-fns/2.30.0/index.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback } = React;
+
+        // Firebase Configuration - REPLACE WITH YOUR CONFIG
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_PROJECT.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT.firebaseio.com",
+            projectId: "YOUR_PROJECT",
+            storageBucket: "YOUR_PROJECT.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        // Initialize Firebase
+        let database;
+        try {
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
+            database = firebase.database();
+        } catch (error) {
+            console.error("Firebase initialization error:", error);
+        }
+
+        // Utility Functions
+        const getWeekEnding = (date) => {
+            const d = new Date(date);
+            const day = d.getDay();
+            const diff = day === 0 ? 0 : 7 - day;
+            d.setDate(d.getDate() + diff);
+            return d.toISOString().split('T')[0];
+        };
+
+        const getWeekDates = (weekEnding) => {
+            const end = new Date(weekEnding);
+            const dates = [];
+            for (let i = 4; i >= 0; i--) {
+                const date = new Date(end);
+                date.setDate(end.getDate() - i);
+                dates.push(date.toISOString().split('T')[0]);
+            }
+            return dates;
+        };
+
+        const formatDate = (dateStr) => {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+        };
+
+        // Calculate fill rate percentage
+        const calculateFillRate = (working, required) => {
+            if (!required || required === 0) return 0;
+            return Math.round((working / required) * 100);
+        };
+
+        // Main App Component
+        function CrescentScorecard() {
+            const [selectedWeek, setSelectedWeek] = useState(getWeekEnding(new Date()));
+            const [weekData, setWeekData] = useState({});
+            const [activeView, setActiveView] = useState('scorecard'); // 'scorecard' or 'input'
+            const [selectedDate, setSelectedDate] = useState('');
+            const [selectedShift, setSelectedShift] = useState('1st');
+            const [loading, setLoading] = useState(false);
+
+            // Load week data from Firebase
+            useEffect(() => {
+                if (!database) return;
+                
+                const weekRef = database.ref(`scorecard/${selectedWeek}`);
+                const listener = weekRef.on('value', (snapshot) => {
+                    const data = snapshot.val() || {};
+                    setWeekData(data);
+                    setLoading(false);
+                });
+
+                return () => weekRef.off('value', listener);
+            }, [selectedWeek]);
+
+            // Initialize empty shift data
+            const getEmptyShiftData = () => ({
+                forecasted: 0,
+                requested: 0,
+                required: 0,
+                working: 0,
+                newStarts: 0,
+                sentHome: 0,
+                directHours: 0,
+                surveysCompleted: 0,
+                earlyLeaves: 0,
+                dnrs: 0
+            });
+
+            // Get shift data with defaults
+            const getShiftData = (date, shift) => {
+                return weekData[date]?.[shift] || getEmptyShiftData();
+            };
+
+            // Save shift data
+            const saveShiftData = async (date, shift, data) => {
+                if (!database) {
+                    alert('Firebase not configured. Please add your Firebase config.');
+                    return;
+                }
+
+                try {
+                    setLoading(true);
+                    await database.ref(`scorecard/${selectedWeek}/${date}/${shift}`).set(data);
+                } catch (error) {
+                    console.error('Error saving data:', error);
+                    alert('Error saving data. Please try again.');
+                }
+            };
+
+            // Calculate week totals
+            const calculateWeekTotals = () => {
+                const weekDates = getWeekDates(selectedWeek);
+                const totals = {
+                    forecasted: 0,
+                    requested: 0,
+                    required: 0,
+                    working: 0,
+                    newStarts: 0,
+                    sentHome: 0,
+                    directHours: 0,
+                    surveysCompleted: 0,
+                    earlyLeaves: 0,
+                    dnrs: 0,
+                    variance: 0
+                };
+
+                const shiftTotals = { '1st': { ...totals }, '2nd': { ...totals } };
+
+                weekDates.forEach(date => {
+                    ['1st', '2nd'].forEach(shift => {
+                        const data = getShiftData(date, shift);
+                        Object.keys(totals).forEach(key => {
+                            if (key !== 'variance') {
+                                totals[key] += Number(data[key]) || 0;
+                                shiftTotals[shift][key] += Number(data[key]) || 0;
+                            }
+                        });
+                    });
+                });
+
+                totals.variance = totals.working - totals.required;
+                shiftTotals['1st'].variance = shiftTotals['1st'].working - shiftTotals['1st'].required;
+                shiftTotals['2nd'].variance = shiftTotals['2nd'].working - shiftTotals['2nd'].required;
+
+                return { totals, shiftTotals };
+            };
+
+            const { totals, shiftTotals } = calculateWeekTotals();
+            const overallFillRate = calculateFillRate(totals.working, totals.required);
+            const firstShiftFillRate = calculateFillRate(shiftTotals['1st'].working, shiftTotals['1st'].required);
+            const secondShiftFillRate = calculateFillRate(shiftTotals['2nd'].working, shiftTotals['2nd'].required);
+            const avgDailyPC = totals.required / 10; // 10 shifts per week (5 days * 2 shifts)
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+                    <div className="max-w-7xl mx-auto">
+                        {/* Header */}
+                        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                <div>
+                                    <h1 className="text-3xl font-bold text-gray-800">Crescent Scorecard 2025</h1>
+                                    <p className="text-gray-600 mt-1">Week Ending: {new Date(selectedWeek).toLocaleDateString()}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => setActiveView('scorecard')}
+                                        className={`px-6 py-2 rounded-lg font-semibold transition ${
+                                            activeView === 'scorecard'
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        Scorecard
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveView('input')}
+                                        className={`px-6 py-2 rounded-lg font-semibold transition ${
+                                            activeView === 'input'
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        Data Entry
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Week Selector */}
+                            <div className="mt-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Select Week:</label>
+                                <input
+                                    type="date"
+                                    value={selectedWeek}
+                                    onChange={(e) => setSelectedWeek(getWeekEnding(e.target.value))}
+                                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Main Content */}
+                        {activeView === 'scorecard' ? (
+                            <ScorecardView 
+                                selectedWeek={selectedWeek}
+                                weekData={weekData}
+                                totals={totals}
+                                shiftTotals={shiftTotals}
+                                overallFillRate={overallFillRate}
+                                firstShiftFillRate={firstShiftFillRate}
+                                secondShiftFillRate={secondShiftFillRate}
+                                avgDailyPC={avgDailyPC}
+                                getShiftData={getShiftData}
+                            />
+                        ) : (
+                            <DataEntryView
+                                selectedWeek={selectedWeek}
+                                selectedDate={selectedDate}
+                                setSelectedDate={setSelectedDate}
+                                selectedShift={selectedShift}
+                                setSelectedShift={setSelectedShift}
+                                getShiftData={getShiftData}
+                                saveShiftData={saveShiftData}
+                                loading={loading}
+                            />
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Scorecard View Component
+        function ScorecardView({ selectedWeek, weekData, totals, shiftTotals, overallFillRate, firstShiftFillRate, secondShiftFillRate, avgDailyPC, getShiftData }) {
+            const weekDates = getWeekDates(selectedWeek);
+
+            return (
+                <div className="space-y-6">
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <SummaryCard
+                            title="Overall Fill Rate"
+                            value={`${overallFillRate}%`}
+                            subtitle={`${totals.working} / ${totals.required}`}
+                            color={overallFillRate >= 95 ? 'green' : overallFillRate >= 85 ? 'yellow' : 'red'}
+                        />
+                        <SummaryCard
+                            title="1st Shift Fill Rate"
+                            value={`${firstShiftFillRate}%`}
+                            subtitle={`${shiftTotals['1st'].working} / ${shiftTotals['1st'].required}`}
+                            color={firstShiftFillRate >= 95 ? 'green' : firstShiftFillRate >= 85 ? 'yellow' : 'red'}
+                        />
+                        <SummaryCard
+                            title="2nd Shift Fill Rate"
+                            value={`${secondShiftFillRate}%`}
+                            subtitle={`${shiftTotals['2nd'].working} / ${shiftTotals['2nd'].required}`}
+                            color={secondShiftFillRate >= 95 ? 'green' : secondShiftFillRate >= 85 ? 'yellow' : 'red'}
+                        />
+                        <SummaryCard
+                            title="Total Direct Hours"
+                            value={totals.directHours.toFixed(1)}
+                            subtitle={`Avg Daily PC: ${avgDailyPC.toFixed(1)}`}
+                            color="blue"
+                        />
+                    </div>
+
+                    {/* Weekly Stats */}
+                    <div className="bg-white rounded-lg shadow-lg p-6">
+                        <h2 className="text-xl font-bold text-gray-800 mb-4">Weekly Summary</h2>
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                            <StatItem label="New Starts" value={totals.newStarts} />
+                            <StatItem label="Sent Home" value={totals.sentHome} />
+                            <StatItem label="Surveys" value={totals.surveysCompleted} />
+                            <StatItem label="Early Leaves" value={totals.earlyLeaves} />
+                            <StatItem label="DNRs" value={totals.dnrs} />
+                        </div>
+                    </div>
+
+                    {/* Daily Breakdown Table */}
+                    <div className="bg-white rounded-lg shadow-lg p-6 overflow-x-auto">
+                        <h2 className="text-xl font-bold text-gray-800 mb-4">Daily Breakdown</h2>
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="border-b-2 border-gray-300">
+                                    <th className="text-left p-2">Date</th>
+                                    <th className="text-center p-2">Shift</th>
+                                    <th className="text-center p-2">Forecasted</th>
+                                    <th className="text-center p-2">Requested</th>
+                                    <th className="text-center p-2">Required</th>
+                                    <th className="text-center p-2">Working</th>
+                                    <th className="text-center p-2">Variance</th>
+                                    <th className="text-center p-2">Fill %</th>
+                                    <th className="text-center p-2">Hours</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {weekDates.map(date => (
+                                    <React.Fragment key={date}>
+                                        {['1st', '2nd'].map(shift => {
+                                            const data = getShiftData(date, shift);
+                                            const variance = data.working - data.required;
+                                            const fillRate = calculateFillRate(data.working, data.required);
+                                            
+                                            return (
+                                                <tr key={`${date}-${shift}`} className="border-b border-gray-200 hover:bg-gray-50">
+                                                    <td className="p-2">{shift === '1st' ? formatDate(date) : ''}</td>
+                                                    <td className="text-center p-2 font-medium">{shift}</td>
+                                                    <td className="text-center p-2">{data.forecasted || '-'}</td>
+                                                    <td className="text-center p-2">{data.requested || '-'}</td>
+                                                    <td className="text-center p-2">{data.required || '-'}</td>
+                                                    <td className="text-center p-2 font-bold">{data.working || '-'}</td>
+                                                    <td className={`text-center p-2 font-bold ${variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                        {variance !== 0 ? (variance > 0 ? '+' : '') + variance : '-'}
+                                                    </td>
+                                                    <td className={`text-center p-2 font-bold ${
+                                                        fillRate >= 95 ? 'text-green-600' : fillRate >= 85 ? 'text-yellow-600' : 'text-red-600'
+                                                    }`}>
+                                                        {fillRate > 0 ? `${fillRate}%` : '-'}
+                                                    </td>
+                                                    <td className="text-center p-2">{data.directHours || '-'}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </React.Fragment>
+                                ))}
+                                {/* Totals Row */}
+                                <tr className="bg-blue-50 font-bold border-t-2 border-blue-300">
+                                    <td className="p-2" colSpan="2">TOTALS</td>
+                                    <td className="text-center p-2">{totals.forecasted}</td>
+                                    <td className="text-center p-2">{totals.requested}</td>
+                                    <td className="text-center p-2">{totals.required}</td>
+                                    <td className="text-center p-2">{totals.working}</td>
+                                    <td className={`text-center p-2 ${totals.variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {totals.variance > 0 ? '+' : ''}{totals.variance}
+                                    </td>
+                                    <td className="text-center p-2">{overallFillRate}%</td>
+                                    <td className="text-center p-2">{totals.directHours.toFixed(1)}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        // Data Entry View Component
+        function DataEntryView({ selectedWeek, selectedDate, setSelectedDate, selectedShift, setSelectedShift, getShiftData, saveShiftData, loading }) {
+            const weekDates = getWeekDates(selectedWeek);
+            const [formData, setFormData] = useState(getEmptyShiftData());
+
+            useEffect(() => {
+                if (selectedDate && selectedShift) {
+                    setFormData(getShiftData(selectedDate, selectedShift));
+                }
+            }, [selectedDate, selectedShift]);
+
+            const getEmptyShiftData = () => ({
+                forecasted: 0,
+                requested: 0,
+                required: 0,
+                working: 0,
+                newStarts: 0,
+                sentHome: 0,
+                directHours: 0,
+                surveysCompleted: 0,
+                earlyLeaves: 0,
+                dnrs: 0
+            });
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!selectedDate || !selectedShift) {
+                    alert('Please select a date and shift');
+                    return;
+                }
+                await saveShiftData(selectedDate, selectedShift, formData);
+            };
+
+            const handleInputChange = (field, value) => {
+                setFormData(prev => ({
+                    ...prev,
+                    [field]: value === '' ? 0 : Number(value)
+                }));
+            };
+
+            return (
+                <div className="bg-white rounded-lg shadow-lg p-6">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-6">Shift Data Entry</h2>
+                    
+                    {/* Date and Shift Selection */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Select Date:</label>
+                            <select
+                                value={selectedDate}
+                                onChange={(e) => setSelectedDate(e.target.value)}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                                <option value="">Choose a date...</option>
+                                {weekDates.map(date => (
+                                    <option key={date} value={date}>{formatDate(date)}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Select Shift:</label>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedShift('1st')}
+                                    className={`flex-1 py-2 rounded-lg font-semibold transition ${
+                                        selectedShift === '1st'
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                    }`}
+                                >
+                                    1st Shift
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedShift('2nd')}
+                                    className={`flex-1 py-2 rounded-lg font-semibold transition ${
+                                        selectedShift === '2nd'
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                    }`}
+                                >
+                                    2nd Shift
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {selectedDate && (
+                        <form onSubmit={handleSubmit} className="space-y-6">
+                            {/* Staffing Metrics */}
+                            <div className="bg-blue-50 rounded-lg p-4">
+                                <h3 className="text-lg font-semibold text-gray-800 mb-4">Staffing Metrics</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    <InputField label="Forecasted" value={formData.forecasted} onChange={(v) => handleInputChange('forecasted', v)} />
+                                    <InputField label="Requested" value={formData.requested} onChange={(v) => handleInputChange('requested', v)} />
+                                    <InputField label="Required" value={formData.required} onChange={(v) => handleInputChange('required', v)} />
+                                    <InputField label="Working" value={formData.working} onChange={(v) => handleInputChange('working', v)} />
+                                </div>
+                                <div className="mt-4 p-3 bg-white rounded border border-blue-200">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-sm font-medium text-gray-700">Variance:</span>
+                                        <span className={`text-lg font-bold ${
+                                            formData.working - formData.required >= 0 ? 'text-green-600' : 'text-red-600'
+                                        }`}>
+                                            {formData.working - formData.required > 0 ? '+' : ''}{formData.working - formData.required}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center mt-2">
+                                        <span className="text-sm font-medium text-gray-700">Fill Rate:</span>
+                                        <span className="text-lg font-bold text-blue-600">
+                                            {calculateFillRate(formData.working, formData.required)}%
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Activity Metrics */}
+                            <div className="bg-green-50 rounded-lg p-4">
+                                <h3 className="text-lg font-semibold text-gray-800 mb-4">Activity Metrics</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                    <InputField label="New Starts" value={formData.newStarts} onChange={(v) => handleInputChange('newStarts', v)} />
+                                    <InputField label="Sent Home" value={formData.sentHome} onChange={(v) => handleInputChange('sentHome', v)} />
+                                    <InputField label="Direct Hours" value={formData.directHours} onChange={(v) => handleInputChange('directHours', v)} step="0.25" />
+                                </div>
+                            </div>
+
+                            {/* Quality Metrics */}
+                            <div className="bg-yellow-50 rounded-lg p-4">
+                                <h3 className="text-lg font-semibold text-gray-800 mb-4">Quality Metrics</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                    <InputField label="Surveys Completed" value={formData.surveysCompleted} onChange={(v) => handleInputChange('surveysCompleted', v)} />
+                                    <InputField label="Early Leaves" value={formData.earlyLeaves} onChange={(v) => handleInputChange('earlyLeaves', v)} />
+                                    <InputField label="DNRs" value={formData.dnrs} onChange={(v) => handleInputChange('dnrs', v)} />
+                                </div>
+                            </div>
+
+                            {/* Submit Button */}
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            >
+                                {loading ? 'Saving...' : 'Save Shift Data'}
+                            </button>
+                        </form>
+                    )}
+
+                    {!selectedDate && (
+                        <div className="text-center py-12 text-gray-500">
+                            <p className="text-lg">Select a date and shift to begin data entry</p>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Reusable Components
+        function SummaryCard({ title, value, subtitle, color }) {
+            const colorClasses = {
+                green: 'from-green-500 to-green-600',
+                yellow: 'from-yellow-500 to-yellow-600',
+                red: 'from-red-500 to-red-600',
+                blue: 'from-blue-500 to-blue-600'
+            };
+
+            return (
+                <div className={`bg-gradient-to-br ${colorClasses[color]} text-white rounded-lg shadow-lg p-6`}>
+                    <h3 className="text-sm font-medium opacity-90">{title}</h3>
+                    <p className="text-3xl font-bold mt-2">{value}</p>
+                    <p className="text-sm opacity-90 mt-1">{subtitle}</p>
+                </div>
+            );
+        }
+
+        function StatItem({ label, value }) {
+            return (
+                <div className="text-center">
+                    <p className="text-2xl font-bold text-gray-800">{value}</p>
+                    <p className="text-sm text-gray-600">{label}</p>
+                </div>
+            );
+        }
+
+        function InputField({ label, value, onChange, step = "1" }) {
+            return (
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+                    <input
+                        type="number"
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        step={step}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                </div>
+            );
+        }
+
+        // Render App
+        ReactDOM.render(<CrescentScorecard />, document.getElementById('root'));
+    </script>
+</body>
+</html>
